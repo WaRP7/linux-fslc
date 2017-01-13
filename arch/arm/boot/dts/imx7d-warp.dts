@@ -300,6 +300,18 @@
 	pinctrl-0 = <&pinctrl_i2c2>;
 	status = "okay";
 
+        himax-ts@48 {
+                compatible = "himax,852xes";
+                reg = <0x48>;
+                pinctrl-0 = <&pinctrl_ctp>;
+                interrupt-parent = <&gpio1>;
+                interrupts = <1 IRQ_TYPE_EDGE_FALLING>;
+
+                himax,panel-coords = <0 320 0 320>;
+                himax,display-coords = <0 320 0 320>;
+                himax,irq-gpio = <&gpio1 1 0x00>;
+                report_type = <1>;
+	};
 	
 };
 
@@ -356,6 +368,30 @@
 	status = "okay";
 };
 
+&iomuxc_lpsr {
+        pinctrl-names = "default";
+        pinctrl-0 = <&pinctrl_hog_2 &pinctrl_usbotg2_pwr_2>;
+
+        imx7d-sdb {
+                pinctrl_ctp: ctp {
+                        fsl,pins = <
+                                MX7D_PAD_GPIO1_IO01__GPIO1_IO1    0x14
+                        >;
+                };
+
+                pinctrl_hog_2: hoggrp-2 {
+                        fsl,pins = <
+                                MX7D_PAD_GPIO1_IO05__GPIO1_IO5    0x14
+                        >;
+                };
+
+                pinctrl_usbotg2_pwr_2: usbotg2-2 {
+                        fsl,pins = <
+                                MX7D_PAD_GPIO1_IO07__GPIO1_IO7 0x14
+                        >;
+                };
+	};
+};
 
 &uart1 {
 	pinctrl-names = "default";
