@@ -326,6 +326,10 @@ static const struct csis_pix_format mipi_csis_formats[] = {
 		.code = MEDIA_BUS_FMT_SBGGR8_1X8,
 		.fmt_reg = MIPI_CSIS_ISPCFG_FMT_RAW8,
 		.data_alignment = 8,
+	}, {
+		.code = MEDIA_BUS_FMT_SBGGR10_1X10,
+		.fmt_reg = MIPI_CSIS_ISPCFG_FMT_RAW10,
+		.data_alignment = 16,		
 	}
 };
 
@@ -591,6 +595,7 @@ static void mipi_csis_start_stream(struct csi_state *state)
 	mipi_csis_set_params(state);
 	mipi_csis_system_enable(state, true);
 	mipi_csis_enable_interrupts(state, true);
+	dump_regs(state, __func__);
 }
 
 static void mipi_csis_stop_stream(struct csi_state *state)

@@ -273,6 +273,12 @@ static struct mx6s_fmt formats[] = {
 		.pixelformat	= V4L2_PIX_FMT_SBGGR8,
 		.mbus_code	= MEDIA_BUS_FMT_SBGGR8_1X8,
 		.bpp		= 1,
+	}, {
+		.name		= "RAWRGB10 (SBGGR10)",
+		.fourcc		= V4L2_PIX_FMT_SBGGR10,
+		.pixelformat	= V4L2_PIX_FMT_SBGGR10,
+		.mbus_code	= MEDIA_BUS_FMT_SBGGR10_1X10,
+		.bpp		= 2,
 	}
 };
 
@@ -806,6 +812,9 @@ static int mx6s_configure_csi(struct mx6s_csi_dev *csi_dev)
 	case V4L2_PIX_FMT_SBGGR8:
 		width = pix->width;
 		break;
+	case V4L2_PIX_FMT_SBGGR10:
+		width = pix->width*2 ;
+		break;
 	case V4L2_PIX_FMT_UYVY:
 	case V4L2_PIX_FMT_YUYV:
 		if (csi_dev->csi_mux_mipi == true)
@@ -823,7 +832,7 @@ static int mx6s_configure_csi(struct mx6s_csi_dev *csi_dev)
 	if (csi_dev->csi_mux_mipi == true) {
 		cr1 = csi_read(csi_dev, CSI_CSICR1);
 		cr1 &= ~BIT_GCLK_MODE;
-		csi_write(csi_dev, cr1, CSI_CSICR1);
+//		csi_write(csi_dev, cr1, CSI_CSICR1);
 
 		cr18 = csi_read(csi_dev, CSI_CSICR18);
 		cr18 &= BIT_MIPI_DATA_FORMAT_MASK;
@@ -837,11 +846,17 @@ static int mx6s_configure_csi(struct mx6s_csi_dev *csi_dev)
 		case V4L2_PIX_FMT_SBGGR8:
 			cr18 |= BIT_MIPI_DATA_FORMAT_RAW8;
 			break;
+                case V4L2_PIX_FMT_SBGGR10:
+                        cr18 |= BIT_MIPI_DATA_FORMAT_RAW10;
+                        cr1 |= BIT_PIXEL_BIT; // 10bit data for each pixel
+                        break;
 		default:
 			pr_debug("   fmt not supported\n");
 			return -EINVAL;
 		}
 
+
+		csi_write(csi_dev, cr1, CSI_CSICR1);
 		csi_write(csi_dev, cr18, CSI_CSICR18);
 	}
 	return 0;
