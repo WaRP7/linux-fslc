@@ -295,6 +295,18 @@ config TOUCHSCREEN_EGALAX
 	  To compile this driver as a module, choose M here: the
 	  module will be called egalax_ts.
 
+config TOUCHSCREEN_ELAN_TS
+	tristate "ELAN touchscreen input driver"
+	depends on I2C
+	help
+	  Say Y here if you have an I2C ELAN touchscreen
+	  attached.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called elan-touch.
+
 config TOUCHSCREEN_FUJITSU
 	tristate "Fujitsu serial touchscreen"
 	select SERIO
@@ -478,6 +490,18 @@ config TOUCHSCREEN_MTOUCH
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called mtouch.
+
+config TOUCHSCREEN_IMX6UL_TSC
+	tristate "Freescale i.MX6UL touchscreen controller"
+	depends on (OF && GPIOLIB) || COMPILE_TEST
+	help
+	  Say Y here if you have a Freescale i.MX6UL, and want to
+	  use the internal touchscreen controller.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called imx6ul_tsc.
 
 config TOUCHSCREEN_INEXIO
 	tristate "iNexio serial touchscreens"

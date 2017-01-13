@@ -279,8 +279,9 @@ struct fsg_common {
 	int			cmnd_size;
 	u8			cmnd[MAX_COMMAND_SIZE];
 
+	unsigned int		nluns;
 	unsigned int		lun;
-	struct fsg_lun		*luns[FSG_MAX_LUNS];
+	struct fsg_lun		**luns;
 	struct fsg_lun		*curlun;
 
 	unsigned int		bulk_out_maxpacket;
@@ -335,7 +336,14 @@ struct fsg_dev {
 
 	struct usb_ep		*bulk_in;
 	struct usb_ep		*bulk_out;
+#ifdef CONFIG_FSL_UTP
+	void			*utp;
+#endif
 };
+
+#ifdef CONFIG_FSL_UTP
+#include "fsl_updater.h"
+#endif
 
 static inline int __fsg_is_set(struct fsg_common *common,
 			       const char *func, unsigned line)
@@ -489,16 +497,6 @@ static void bulk_out_complete(struct usb_ep *ep, struct usb_request *req)
 	spin_unlock(&common->lock);
 }
 
-static int _fsg_common_get_max_lun(struct fsg_common *common)
-{
-	int i = ARRAY_SIZE(common->luns) - 1;
-
-	while (i >= 0 && !common->luns[i])
-		--i;
-
-	return i;
-}
-
 static int fsg_setup(struct usb_function *f,
 		     const struct usb_ctrlrequest *ctrl)
 {
@@ -542,7 +540,7 @@ static int fsg_setup(struct usb_function *f,
 				w_length != 1)
 			return -EDOM;
 		VDBG(fsg, "get max LUN\n");
-		*(u8 *)req->buf = _fsg_common_get_max_lun(fsg->common);
+		*(u8 *)req->buf = fsg->common->nluns - 1;
 
 		/* Respond with data/status */
 		req->length = min((u16)1, w_length);
@@ -1140,6 +1138,13 @@ static int do_request_sense(struct fsg_common *common, struct fsg_buffhd *bh)
 	}
 #endif
 
+#ifdef CONFIG_FSL_UTP
+	if (utp_get_sense(common->fsg) == 0) {  /* got the sense from the UTP */
+		sd = UTP_CTX(common->fsg)->sd;
+		sdinfo = UTP_CTX(common->fsg)->sdinfo;
+		valid = 0;
+	} else
+#endif
 	if (!curlun) {		/* Unsupported LUNs are okay */
 		common->bad_lun_okay = 1;
 		sd = SS_LOGICAL_UNIT_NOT_SUPPORTED;
@@ -1161,6 +1166,9 @@ static int do_request_sense(struct fsg_common *common, struct fsg_buffhd *bh)
 	buf[7] = 18 - 8;			/* Additional sense length */
 	buf[12] = ASC(sd);
 	buf[13] = ASCQ(sd);
+#ifdef CONFIG_FSL_UTP
+	put_unaligned_be32(UTP_CTX(common->fsg)->sdinfo_h, &buf[8]);
+#endif
 	return 18;
 }
 
@@ -1654,7 +1662,18 @@ static int send_status(struct fsg_common *common)
 		sd = SS_INVALID_COMMAND;
 	} else if (sd != SS_NO_SENSE) {
 		DBG(common, "sending command-failure status\n");
+#ifdef CONFIG_FSL_UTP
+/*
+ * mfgtool host frequently reset bus during transfer
+ *  - the response in csw to request sense will be 1 due to UTP change
+ *    some storage information
+ *  - host will reset the bus if response to request sense is 1
+ *  - change the response to 0 if CONFIG_FSL_UTP is defined
+ */
+		status = US_BULK_STAT_OK;
+#else
 		status = US_BULK_STAT_FAIL;
+#endif
 		VDBG(common, "  sense data: SK x%02x, ASC x%02x, ASCQ x%02x;"
 				"  info x%x\n",
 				SK(sd), ASC(sd), ASCQ(sd), sdinfo);
@@ -1844,6 +1863,13 @@ static int do_scsi_command(struct fsg_common *common)
 	}
 	common->phase_error = 0;
 	common->short_packet_received = 0;
+
+#ifdef CONFIG_FSL_UTP
+	reply = utp_handle_message(common->fsg, common->cmnd, reply);
+
+	if (reply != -EINVAL)
+		return reply;
+#endif
 
 	down_read(&common->filesem);	/* We're using the backing file */
 	switch (common->cmnd[0]) {
@@ -2140,9 +2166,8 @@ static int received_cbw(struct fsg_dev *fsg, struct fsg_buffhd *bh)
 	}
 
 	/* Is the CBW meaningful? */
-	if (cbw->Lun >= ARRAY_SIZE(common->luns) ||
-	    cbw->Flags & ~US_BULK_FLAG_IN || cbw->Length <= 0 ||
-	    cbw->Length > MAX_COMMAND_SIZE) {
+	if (cbw->Lun >= FSG_MAX_LUNS || cbw->Flags & ~US_BULK_FLAG_IN ||
+			cbw->Length <= 0 || cbw->Length > MAX_COMMAND_SIZE) {
 		DBG(fsg, "non-meaningful CBW: lun = %u, flags = 0x%x, "
 				"cmdlen %u\n",
 				cbw->Lun, cbw->Flags, cbw->Length);
@@ -2169,7 +2194,7 @@ static int received_cbw(struct fsg_dev *fsg, struct fsg_buffhd *bh)
 	if (common->data_size == 0)
 		common->data_dir = DATA_DIR_NONE;
 	common->lun = cbw->Lun;
-	if (common->lun < ARRAY_SIZE(common->luns))
+	if (common->lun < common->nluns)
 		common->curlun = common->luns[common->lun];
 	else
 		common->curlun = NULL;
@@ -2317,7 +2342,7 @@ reset:
 	}
 
 	common->running = 1;
-	for (i = 0; i < ARRAY_SIZE(common->luns); ++i)
+	for (i = 0; i < common->nluns; ++i)
 		if (common->luns[i])
 			common->luns[i]->unit_attention_data =
 				SS_RESET_OCCURRED;
@@ -2419,7 +2444,7 @@ static void handle_exception(struct fsg_common *common)
 	if (old_state == FSG_STATE_ABORT_BULK_OUT)
 		common->state = FSG_STATE_STATUS_PHASE;
 	else {
-		for (i = 0; i < ARRAY_SIZE(common->luns); ++i) {
+		for (i = 0; i < common->nluns; ++i) {
 			curlun = common->luns[i];
 			if (!curlun)
 				continue;
@@ -2463,7 +2488,7 @@ static void handle_exception(struct fsg_common *common)
 		 * a waste of time.  Ditto for the INTERFACE_CHANGE and
 		 * CONFIG_CHANGE cases.
 		 */
-		/* for (i = 0; i < common->ARRAY_SIZE(common->luns); ++i) */
+		/* for (i = 0; i < common->nluns; ++i) */
 		/*	if (common->luns[i]) */
 		/*		common->luns[i]->unit_attention_data = */
 		/*			SS_RESET_OCCURRED;  */
@@ -2512,12 +2537,14 @@ static int fsg_main_thread(void *common_)
 	/* Allow the thread to be frozen */
 	set_freezable();
 
+#ifndef CONFIG_FSL_UTP
 	/*
 	 * Arrange for userspace references to be interpreted as kernel
 	 * pointers.  That way we can pass a kernel pointer to a routine
 	 * that expects a __user pointer and it will work okay.
 	 */
 	set_fs(get_ds());
+#endif
 
 	/* The main loop */
 	while (common->state != FSG_STATE_TERMINATED) {
@@ -2562,11 +2589,12 @@ static int fsg_main_thread(void *common_)
 
 	if (!common->ops || !common->ops->thread_exits
 	 || common->ops->thread_exits(common) < 0) {
-		int i;
+		struct fsg_lun **curlun_it = common->luns;
+		unsigned i = common->nluns;
 
 		down_write(&common->filesem);
-		for (i = 0; i < ARRAY_SIZE(common->luns); --i) {
-			struct fsg_lun *curlun = common->luns[i];
+		for (; i--; ++curlun_it) {
+			struct fsg_lun *curlun = *curlun_it;
 			if (!curlun || !fsg_lun_is_open(curlun))
 				continue;
 
@@ -2685,7 +2713,6 @@ static struct fsg_common *fsg_common_setup(struct fsg_common *common)
 	init_completion(&common->thread_notifier);
 	init_waitqueue_head(&common->fsg_wait);
 	common->state = FSG_STATE_TERMINATED;
-	memset(common->luns, 0, sizeof(common->luns));
 
 	return common;
 }
@@ -2752,9 +2779,9 @@ error_release:
 }
 EXPORT_SYMBOL_GPL(fsg_common_set_num_buffers);
 
-void fsg_common_remove_lun(struct fsg_lun *lun)
+void fsg_common_remove_lun(struct fsg_lun *lun, bool sysfs)
 {
-	if (device_is_registered(&lun->dev))
+	if (sysfs)
 		device_unregister(&lun->dev);
 	fsg_lun_close(lun);
 	kfree(lun);
@@ -2767,7 +2794,7 @@ static void _fsg_common_remove_luns(struct fsg_common *common, int n)
 
 	for (i = 0; i < n; ++i)
 		if (common->luns[i]) {
-			fsg_common_remove_lun(common->luns[i]);
+			fsg_common_remove_lun(common->luns[i], common->sysfs);
 			common->luns[i] = NULL;
 		}
 }
@@ -2775,8 +2802,40 @@ EXPORT_SYMBOL_GPL(fsg_common_remove_luns);
 
 void fsg_common_remove_luns(struct fsg_common *common)
 {
-	_fsg_common_remove_luns(common, ARRAY_SIZE(common->luns));
+	_fsg_common_remove_luns(common, common->nluns);
 }
+
+void fsg_common_free_luns(struct fsg_common *common)
+{
+	fsg_common_remove_luns(common);
+	kfree(common->luns);
+	common->luns = NULL;
+}
+EXPORT_SYMBOL_GPL(fsg_common_free_luns);
+
+int fsg_common_set_nluns(struct fsg_common *common, int nluns)
+{
+	struct fsg_lun **curlun;
+
+	/* Find out how many LUNs there should be */
+	if (nluns < 1 || nluns > FSG_MAX_LUNS) {
+		pr_err("invalid number of LUNs: %u\n", nluns);
+		return -EINVAL;
+	}
+
+	curlun = kcalloc(FSG_MAX_LUNS, sizeof(*curlun), GFP_KERNEL);
+	if (unlikely(!curlun))
+		return -ENOMEM;
+
+	if (common->luns)
+		fsg_common_free_luns(common);
+
+	common->luns = curlun;
+	common->nluns = nluns;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(fsg_common_set_nluns);
 
 void fsg_common_set_ops(struct fsg_common *common,
 			const struct fsg_operations *ops)
@@ -2858,7 +2917,7 @@ int fsg_common_create_lun(struct fsg_common *common, struct fsg_lun_config *cfg,
 	char *pathbuf, *p;
 	int rc = -ENOMEM;
 
-	if (id >= ARRAY_SIZE(common->luns))
+	if (!common->nluns || !common->luns)
 		return -ENODEV;
 
 	if (common->luns[id])
@@ -2927,7 +2986,7 @@ int fsg_common_create_lun(struct fsg_common *common, struct fsg_lun_config *cfg,
 	return 0;
 
 error_lun:
-	if (device_is_registered(&lun->dev))
+	if (common->sysfs)
 		device_unregister(&lun->dev);
 	fsg_lun_close(lun);
 	common->luns[id] = NULL;
@@ -2942,16 +3001,14 @@ int fsg_common_create_luns(struct fsg_common *common, struct fsg_config *cfg)
 	char buf[8]; /* enough for 100000000 different numbers, decimal */
 	int i, rc;
 
-	fsg_common_remove_luns(common);
-
-	for (i = 0; i < cfg->nluns; ++i) {
+	for (i = 0; i < common->nluns; ++i) {
 		snprintf(buf, sizeof(buf), "lun%d", i);
 		rc = fsg_common_create_lun(common, &cfg->luns[i], i, buf, NULL);
 		if (rc)
 			goto fail;
 	}
 
-	pr_info("Number of LUNs=%d\n", cfg->nluns);
+	pr_info("Number of LUNs=%d\n", common->nluns);
 
 	return 0;
 
@@ -2978,26 +3035,51 @@ void fsg_common_set_inquiry_string(struct fsg_common *common, const char *vn,
 }
 EXPORT_SYMBOL_GPL(fsg_common_set_inquiry_string);
 
+int fsg_common_run_thread(struct fsg_common *common)
+{
+	common->state = FSG_STATE_IDLE;
+	/* Tell the thread to start working */
+	common->thread_task =
+		kthread_create(fsg_main_thread, common, "file-storage");
+	if (IS_ERR(common->thread_task)) {
+		common->state = FSG_STATE_TERMINATED;
+		return PTR_ERR(common->thread_task);
+	}
+
+	DBG(common, "I/O thread pid: %d\n", task_pid_nr(common->thread_task));
+
+	wake_up_process(common->thread_task);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(fsg_common_run_thread);
+
 static void fsg_common_release(struct kref *ref)
 {
 	struct fsg_common *common = container_of(ref, struct fsg_common, ref);
-	int i;
 
 	/* If the thread isn't already dead, tell it to exit now */
 	if (common->state != FSG_STATE_TERMINATED) {
 		raise_exception(common, FSG_STATE_EXIT);
 		wait_for_completion(&common->thread_notifier);
-		common->thread_task = NULL;
 	}
 
-	for (i = 0; i < ARRAY_SIZE(common->luns); ++i) {
-		struct fsg_lun *lun = common->luns[i];
-		if (!lun)
-			continue;
-		fsg_lun_close(lun);
-		if (device_is_registered(&lun->dev))
-			device_unregister(&lun->dev);
-		kfree(lun);
+	if (likely(common->luns)) {
+		struct fsg_lun **lun_it = common->luns;
+		unsigned i = common->nluns;
+
+		/* In error recovery common->nluns may be zero. */
+		for (; i; --i, ++lun_it) {
+			struct fsg_lun *lun = *lun_it;
+			if (!lun)
+				continue;
+			fsg_lun_close(lun);
+			if (common->sysfs)
+				device_unregister(&lun->dev);
+			kfree(lun);
+		}
+
+		kfree(common->luns);
 	}
 
 	_fsg_common_free_buffers(common->buffhds, common->fsg_num_buffers);
@@ -3008,23 +3090,19 @@ static void fsg_common_release(struct kref *ref)
 
 /*-------------------------------------------------------------------------*/
 
+#ifdef CONFIG_FSL_UTP
+#include "fsl_updater.c"
+#endif
+
 static int fsg_bind(struct usb_configuration *c, struct usb_function *f)
 {
 	struct fsg_dev		*fsg = fsg_from_func(f);
-	struct fsg_common	*common = fsg->common;
 	struct usb_gadget	*gadget = c->cdev->gadget;
 	int			i;
 	struct usb_ep		*ep;
 	unsigned		max_burst;
 	int			ret;
 	struct fsg_opts		*opts;
-
-	/* Don't allow to bind if we don't have at least one LUN */
-	ret = _fsg_common_get_max_lun(common);
-	if (ret < 0) {
-		pr_err("There should be at least one LUN.\n");
-		return -EINVAL;
-	}
 
 	opts = fsg_opts_from_func_inst(f->fi);
 	if (!opts->no_configfs) {
@@ -3033,21 +3111,9 @@ static int fsg_bind(struct usb_configuration *c, struct usb_function *f)
 		if (ret)
 			return ret;
 		fsg_common_set_inquiry_string(fsg->common, NULL, NULL);
-	}
-
-	if (!common->thread_task) {
-		common->state = FSG_STATE_IDLE;
-		common->thread_task =
-			kthread_create(fsg_main_thread, common, "file-storage");
-		if (IS_ERR(common->thread_task)) {
-			int ret = PTR_ERR(common->thread_task);
-			common->thread_task = NULL;
-			common->state = FSG_STATE_TERMINATED;
+		ret = fsg_common_run_thread(fsg->common);
+		if (ret)
 			return ret;
-		}
-		DBG(common, "I/O thread pid: %d\n",
-		    task_pid_nr(common->thread_task));
-		wake_up_process(common->thread_task);
 	}
 
 	fsg->gadget = gadget;
@@ -3058,6 +3124,10 @@ static int fsg_bind(struct usb_configuration *c, struct usb_function *f)
 		return i;
 	fsg_intf_desc.bInterfaceNumber = i;
 	fsg->interface_number = i;
+
+#ifdef CONFIG_FSL_UTP
+	utp_init(fsg);
+#endif
 
 	/* Find all the endpoints we will use */
 	ep = usb_ep_autoconfig(gadget, &fsg_fs_bulk_in_desc);
@@ -3117,6 +3187,11 @@ static void fsg_unbind(struct usb_configuration *c, struct usb_function *f)
 	}
 
 	usb_free_all_descriptors(&fsg->function);
+
+#ifdef CONFIG_FSL_UTP
+	utp_exit(fsg);
+#endif
+
 }
 
 static inline struct fsg_lun_opts *to_fsg_lun_opts(struct config_item *item)
@@ -3330,7 +3405,7 @@ static void fsg_lun_drop(struct config_group *group, struct config_item *item)
 		unregister_gadget_item(gadget);
 	}
 
-	fsg_common_remove_lun(lun_opts->lun);
+	fsg_common_remove_lun(lun_opts->lun, fsg_opts->common->sysfs);
 	fsg_opts->common->luns[lun_opts->lun_id] = NULL;
 	lun_opts->lun_id = 0;
 	mutex_unlock(&fsg_opts->lock);
@@ -3484,11 +3559,14 @@ static struct usb_function_instance *fsg_alloc_inst(void)
 		rc = PTR_ERR(opts->common);
 		goto release_opts;
 	}
+	rc = fsg_common_set_nluns(opts->common, FSG_MAX_LUNS);
+	if (rc)
+		goto release_opts;
 
 	rc = fsg_common_set_num_buffers(opts->common,
 					CONFIG_USB_GADGET_STORAGE_NUM_BUFFERS);
 	if (rc)
-		goto release_opts;
+		goto release_luns;
 
 	pr_info(FSG_DRIVER_DESC ", version: " FSG_DRIVER_VERSION "\n");
 
@@ -3496,9 +3574,6 @@ static struct usb_function_instance *fsg_alloc_inst(void)
 	config.removable = true;
 	rc = fsg_common_create_lun(opts->common, &config, 0, "lun.0",
 			(const char **)&opts->func_inst.group.cg_item.ci_name);
-	if (rc)
-		goto release_buffers;
-
 	opts->lun0.lun = opts->common->luns[0];
 	opts->lun0.lun_id = 0;
 	config_group_init_type_name(&opts->lun0.group, "lun.0", &fsg_lun_type);
@@ -3509,8 +3584,8 @@ static struct usb_function_instance *fsg_alloc_inst(void)
 
 	return &opts->func_inst;
 
-release_buffers:
-	fsg_common_free_buffers(opts->common);
+release_luns:
+	kfree(opts->common->luns);
 release_opts:
 	kfree(opts);
 	return ERR_PTR(rc);
@@ -3536,12 +3611,23 @@ static struct usb_function *fsg_alloc(struct usb_function_instance *fi)
 	struct fsg_opts *opts = fsg_opts_from_func_inst(fi);
 	struct fsg_common *common = opts->common;
 	struct fsg_dev *fsg;
+	unsigned nluns, i;
 
 	fsg = kzalloc(sizeof(*fsg), GFP_KERNEL);
 	if (unlikely(!fsg))
 		return ERR_PTR(-ENOMEM);
 
 	mutex_lock(&opts->lock);
+	if (!opts->refcnt) {
+		for (nluns = i = 0; i < FSG_MAX_LUNS; ++i)
+			if (common->luns[i])
+				nluns = i + 1;
+		if (!nluns)
+			pr_warn("No LUNS defined, continuing anyway\n");
+		else
+			common->nluns = nluns;
+		pr_info("Number of LUNs=%u\n", common->nluns);
+	}
 	opts->refcnt++;
 	mutex_unlock(&opts->lock);
 

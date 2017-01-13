@@ -1,0 +1,110 @@
+--- arch/arm64/boot/dts/include/dt-bindings/clock/imx6sx-clock.h	2016-07-30 09:39:46.000000000 +0800
++++ arch/arm64/boot/dts/include/dt-bindings/clock/imx6sx-clock.h	2016-12-19 18:03:21.000000000 +0800
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2014 Freescale Semiconductor, Inc.
++ * Copyright (C) 2014-2015 Freescale Semiconductor, Inc.
+  *
+  * This program is free software; you can redistribute it and/or modify
+  * it under the terms of the GNU General Public License version 2 as
+@@ -274,6 +274,11 @@
+ #define IMX6SX_PLL5_BYPASS		261
+ #define IMX6SX_PLL6_BYPASS		262
+ #define IMX6SX_PLL7_BYPASS		263
+-#define IMX6SX_CLK_CLK_END		264
++#define IMX6SX_CLK_SPDIF_GCLK		264
++#define IMX6SX_CLK_LVDS2_SEL		265
++#define IMX6SX_CLK_LVDS2_OUT		266
++#define IMX6SX_CLK_LVDS2_IN		267
++#define IMX6SX_CLK_ANACLK2		268
++#define IMX6SX_CLK_CLK_END		269
+ 
+ #endif /* __DT_BINDINGS_CLOCK_IMX6SX_H */
+--- arch/metag/boot/dts/include/dt-bindings/clock/imx6sx-clock.h	2016-07-30 09:39:46.000000000 +0800
++++ arch/metag/boot/dts/include/dt-bindings/clock/imx6sx-clock.h	2016-12-19 18:03:21.000000000 +0800
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2014 Freescale Semiconductor, Inc.
++ * Copyright (C) 2014-2015 Freescale Semiconductor, Inc.
+  *
+  * This program is free software; you can redistribute it and/or modify
+  * it under the terms of the GNU General Public License version 2 as
+@@ -274,6 +274,11 @@
+ #define IMX6SX_PLL5_BYPASS		261
+ #define IMX6SX_PLL6_BYPASS		262
+ #define IMX6SX_PLL7_BYPASS		263
+-#define IMX6SX_CLK_CLK_END		264
++#define IMX6SX_CLK_SPDIF_GCLK		264
++#define IMX6SX_CLK_LVDS2_SEL		265
++#define IMX6SX_CLK_LVDS2_OUT		266
++#define IMX6SX_CLK_LVDS2_IN		267
++#define IMX6SX_CLK_ANACLK2		268
++#define IMX6SX_CLK_CLK_END		269
+ 
+ #endif /* __DT_BINDINGS_CLOCK_IMX6SX_H */
+--- arch/mips/boot/dts/include/dt-bindings/clock/imx6sx-clock.h	2016-07-30 09:39:46.000000000 +0800
++++ arch/mips/boot/dts/include/dt-bindings/clock/imx6sx-clock.h	2016-12-19 18:03:21.000000000 +0800
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2014 Freescale Semiconductor, Inc.
++ * Copyright (C) 2014-2015 Freescale Semiconductor, Inc.
+  *
+  * This program is free software; you can redistribute it and/or modify
+  * it under the terms of the GNU General Public License version 2 as
+@@ -274,6 +274,11 @@
+ #define IMX6SX_PLL5_BYPASS		261
+ #define IMX6SX_PLL6_BYPASS		262
+ #define IMX6SX_PLL7_BYPASS		263
+-#define IMX6SX_CLK_CLK_END		264
++#define IMX6SX_CLK_SPDIF_GCLK		264
++#define IMX6SX_CLK_LVDS2_SEL		265
++#define IMX6SX_CLK_LVDS2_OUT		266
++#define IMX6SX_CLK_LVDS2_IN		267
++#define IMX6SX_CLK_ANACLK2		268
++#define IMX6SX_CLK_CLK_END		269
+ 
+ #endif /* __DT_BINDINGS_CLOCK_IMX6SX_H */
+--- arch/powerpc/boot/dts/include/dt-bindings/clock/imx6sx-clock.h	2016-07-30 09:39:46.000000000 +0800
++++ arch/powerpc/boot/dts/include/dt-bindings/clock/imx6sx-clock.h	2016-12-19 18:03:21.000000000 +0800
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2014 Freescale Semiconductor, Inc.
++ * Copyright (C) 2014-2015 Freescale Semiconductor, Inc.
+  *
+  * This program is free software; you can redistribute it and/or modify
+  * it under the terms of the GNU General Public License version 2 as
+@@ -274,6 +274,11 @@
+ #define IMX6SX_PLL5_BYPASS		261
+ #define IMX6SX_PLL6_BYPASS		262
+ #define IMX6SX_PLL7_BYPASS		263
+-#define IMX6SX_CLK_CLK_END		264
++#define IMX6SX_CLK_SPDIF_GCLK		264
++#define IMX6SX_CLK_LVDS2_SEL		265
++#define IMX6SX_CLK_LVDS2_OUT		266
++#define IMX6SX_CLK_LVDS2_IN		267
++#define IMX6SX_CLK_ANACLK2		268
++#define IMX6SX_CLK_CLK_END		269
+ 
+ #endif /* __DT_BINDINGS_CLOCK_IMX6SX_H */
+--- include/dt-bindings/clock/imx6sx-clock.h	2016-07-30 09:39:46.000000000 +0800
++++ include/dt-bindings/clock/imx6sx-clock.h	2016-12-19 18:03:21.000000000 +0800
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2014 Freescale Semiconductor, Inc.
++ * Copyright (C) 2014-2015 Freescale Semiconductor, Inc.
+  *
+  * This program is free software; you can redistribute it and/or modify
+  * it under the terms of the GNU General Public License version 2 as
+@@ -274,6 +274,11 @@
+ #define IMX6SX_PLL5_BYPASS		261
+ #define IMX6SX_PLL6_BYPASS		262
+ #define IMX6SX_PLL7_BYPASS		263
+-#define IMX6SX_CLK_CLK_END		264
++#define IMX6SX_CLK_SPDIF_GCLK		264
++#define IMX6SX_CLK_LVDS2_SEL		265
++#define IMX6SX_CLK_LVDS2_OUT		266
++#define IMX6SX_CLK_LVDS2_IN		267
++#define IMX6SX_CLK_ANACLK2		268
++#define IMX6SX_CLK_CLK_END		269
+ 
+ #endif /* __DT_BINDINGS_CLOCK_IMX6SX_H */

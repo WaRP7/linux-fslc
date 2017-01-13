@@ -78,21 +78,7 @@ static struct usb_device_descriptor device_desc = {
 	.idProduct =		cpu_to_le16(MULTI_PRODUCT_NUM),
 };
 
-
-static const struct usb_descriptor_header *otg_desc[] = {
-	(struct usb_descriptor_header *) &(struct usb_otg_descriptor){
-		.bLength =		sizeof(struct usb_otg_descriptor),
-		.bDescriptorType =	USB_DT_OTG,
-
-		/*
-		 * REVISIT SRP-only hardware is possible, although
-		 * it would not be called "OTG" ...
-		 */
-		.bmAttributes =		USB_OTG_SRP | USB_OTG_HNP,
-	},
-	NULL,
-};
-
+static const struct usb_descriptor_header *otg_desc[2];
 
 enum {
 	MULTI_STRING_RNDIS_CONFIG_IDX = USB_GADGET_FIRST_AVAIL_IDX,
@@ -151,6 +137,7 @@ static struct usb_function *f_msg_rndis;
 
 static int rndis_do_config(struct usb_configuration *c)
 {
+	struct fsg_opts *fsg_opts;
 	int ret;
 
 	if (gadget_is_otg(c->cdev->gadget)) {
@@ -181,6 +168,11 @@ static int rndis_do_config(struct usb_configuration *c)
 		ret = PTR_ERR(f_msg_rndis);
 		goto err_fsg;
 	}
+
+	fsg_opts = fsg_opts_from_func_inst(fi_msg);
+	ret = fsg_common_run_thread(fsg_opts->common);
+	if (ret)
+		goto err_run;
 
 	ret = usb_add_function(c, f_msg_rndis);
 	if (ret)
@@ -233,6 +225,7 @@ static struct usb_function *f_msg_multi;
 
 static int cdc_do_config(struct usb_configuration *c)
 {
+	struct fsg_opts *fsg_opts;
 	int ret;
 
 	if (gadget_is_otg(c->cdev->gadget)) {
@@ -264,6 +257,11 @@ static int cdc_do_config(struct usb_configuration *c)
 		ret = PTR_ERR(f_msg_multi);
 		goto err_fsg;
 	}
+
+	fsg_opts = fsg_opts_from_func_inst(fi_msg);
+	ret = fsg_common_run_thread(fsg_opts->common);
+	if (ret)
+		goto err_run;
 
 	ret = usb_add_function(c, f_msg_multi);
 	if (ret)
@@ -395,6 +393,10 @@ static int __ref multi_bind(struct usb_composite_dev *cdev)
 	if (status)
 		goto fail2;
 
+	status = fsg_common_set_nluns(fsg_opts->common, config.nluns);
+	if (status)
+		goto fail_set_nluns;
+
 	status = fsg_common_set_cdev(fsg_opts->common, cdev, config.can_stall);
 	if (status)
 		goto fail_set_cdev;
@@ -413,14 +415,25 @@ static int __ref multi_bind(struct usb_composite_dev *cdev)
 		goto fail_string_ids;
 	device_desc.iProduct = strings_dev[USB_GADGET_PRODUCT_IDX].id;
 
+	if (gadget_is_otg(gadget) && !otg_desc[0]) {
+		struct usb_descriptor_header *usb_desc;
+
+		usb_desc = usb_otg_descriptor_alloc(gadget);
+		if (!usb_desc)
+			goto fail_string_ids;
+		usb_otg_descriptor_init(gadget, usb_desc);
+		otg_desc[0] = usb_desc;
+		otg_desc[1] = NULL;
+	}
+
 	/* register configurations */
 	status = rndis_config_register(cdev);
 	if (unlikely(status < 0))
-		goto fail_string_ids;
+		goto fail_otg_desc;
 
 	status = cdc_config_register(cdev);
 	if (unlikely(status < 0))
-		goto fail_string_ids;
+		goto fail_otg_desc;
 	usb_composite_overwrite_options(cdev, &coverwrite);
 
 	/* we're done */
@@ -429,9 +442,14 @@ static int __ref multi_bind(struct usb_composite_dev *cdev)
 
 
 	/* error recovery */
+fail_otg_desc:
+	kfree(otg_desc[0]);
+	otg_desc[0] = NULL;
 fail_string_ids:
 	fsg_common_remove_luns(fsg_opts->common);
 fail_set_cdev:
+	fsg_common_free_luns(fsg_opts->common);
+fail_set_nluns:
 	fsg_common_free_buffers(fsg_opts->common);
 fail2:
 	usb_put_function_instance(fi_msg);
@@ -472,6 +490,9 @@ static int multi_unbind(struct usb_composite_dev *cdev)
 	usb_put_function(f_ecm);
 	usb_put_function_instance(fi_ecm);
 #endif
+	kfree(otg_desc[0]);
+	otg_desc[0] = NULL;
+
 	return 0;
 }
 

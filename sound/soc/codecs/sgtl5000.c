@@ -1463,8 +1463,10 @@ static int sgtl5000_i2c_probe(struct i2c_client *client,
 
 	/* read chip information */
 	ret = regmap_read(sgtl5000->regmap, SGTL5000_CHIP_ID, &reg);
-	if (ret)
+	if (ret) {
+		ret = -EPROBE_DEFER;
 		goto disable_clk;
+        }
 
 	if (((reg & SGTL5000_PARTID_MASK) >> SGTL5000_PARTID_SHIFT) !=
 	    SGTL5000_PARTID_PART_ID) {
