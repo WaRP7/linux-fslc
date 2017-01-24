@@ -125,6 +125,10 @@
 		status = "okay";
 	};	
 	
+	rfkill-bluedroid{
+		compatible = "fsl,rfkill-bluedroid";
+		bt-reset = <&gpio5 17 0>;
+	};
 };
 
 &lcdif {
