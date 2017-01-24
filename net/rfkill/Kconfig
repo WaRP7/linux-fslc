@@ -33,7 +33,16 @@ config RFKILL_REGULATOR
 
           To compile this driver as a module, choose M here: the module will
           be called rfkill-regulator.
-
+		  
+config RFKILL_BLUEDROID_WARP7
+	tristate "Generic rfkill WaRP7 bluedroid driver"
+	depends on RFKILL || !RFKILL
+	depends on REGULATOR
+	help
+          To compile this driver as a module, choose M here: the module will
+          be called rfkill-bluedroid.
+		  
+		  
 config RFKILL_GPIO
 	tristate "GPIO RFKILL driver"
 	depends on RFKILL && GPIOLIB
