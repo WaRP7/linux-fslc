@@ -15,7 +15,6 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-
 #include <linux/types.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
@@ -47,12 +46,13 @@
 #include "mipi_dsi.h"
 
 #define DISPDRV_MIPI			"mipi_dsi_samsung"
-#define ROUND_UP(x)			((x)+1)
-#define NS2PS_RATIO			(1000)
+#define ROUND_UP(x)				((x)+1)
+#define NS2PS_RATIO				(1000)
 #define	MIPI_LCD_SLEEP_MODE_DELAY	(120)
 #define MIPI_FIFO_TIMEOUT		msecs_to_jiffies(250)
 
 static int back_light_gpio;
+static int reset_gpio = -1;
 
 static struct mipi_dsi_match_lcd mipi_dsi_lcd_db[] = {
 #ifdef CONFIG_FB_MXC_TRULY_WVGA_SYNC_PANEL
@@ -71,6 +71,12 @@ static struct mipi_dsi_match_lcd mipi_dsi_lcd_db[] = {
 	{
 	 "TRULY-WVGA-TFT3P5581E",
 	 {mipid_hx8363_get_lcd_videomode, mipid_hx8363_lcd_setup}
+	},
+#endif
+#ifdef CONFIG_FB_MXC_TRULY_PANEL_TDO_ST7796H
+	{
+	 "TRULY-TDO-ST7796H",
+	 {mipid_st7796h_get_lcd_videomode, mipid_st7796h_lcd_setup}
 	},
 #endif
 #ifdef CONFIG_FB_MXC_TRULY_PANEL_TDO_QVGA0150A90049
@@ -97,6 +103,7 @@ enum mipi_dsi_trans_mode {
 };
 
 static struct regulator *mipi_phy_reg;
+static volatile int timeout = 0;
 static DECLARE_COMPLETION(dsi_rx_done);
 static DECLARE_COMPLETION(dsi_tx_done);
 
@@ -229,6 +236,8 @@ static int mipi_dsi_pkt_write(struct mipi_dsi_info *mipi_dsi,
 	struct platform_device *pdev = mipi_dsi->pdev;
 	const unsigned char *data = (const unsigned char*)buf;
 
+	dev_dbg(&mipi_dsi->pdev->dev, " pkt write data_type = %02X\n", data_type);
+
 	if (len == 0)
 		/* handle generic short write command */
 		mipi_dsi_wr_tx_header(mipi_dsi, data_type, data[0], data[1]);
@@ -263,13 +272,21 @@ static unsigned int mipi_dsi_rd_rx_fifo(struct mipi_dsi_info *mipi_dsi)
 	return readl(mipi_dsi->mmio_base + MIPI_DSI_RXFIFO);
 }
 
+static unsigned int mipi_dsi_fifo_ctrl(struct mipi_dsi_info *mipi_dsi)
+{
+	return readl(mipi_dsi->mmio_base + MIPI_DSI_FIFOCTRL);
+}
+
 static int mipi_dsi_pkt_read(struct mipi_dsi_info *mipi_dsi,
 				u8 data_type, u32 *buf, int len)
 {
 	int ret;
 	struct platform_device *pdev = mipi_dsi->pdev;
 
+	dev_dbg(&mipi_dsi->pdev->dev, " pkt read data_type = %02X\n", data_type);
+
 	if (len <= 4) {
+		timeout = 0;
 		reinit_completion(&dsi_rx_done);
 
 		mipi_dsi_rd_tx_header(mipi_dsi, data_type, buf[0]);
@@ -280,8 +297,13 @@ static int mipi_dsi_pkt_read(struct mipi_dsi_info *mipi_dsi,
 			return -ETIMEDOUT;
 		}
 
+		if (timeout || (FIFOCTRL_EMPTYRX & mipi_dsi_fifo_ctrl(mipi_dsi))) {
+			return -ETIMEDOUT;
+		}
+
 		buf[0] = mipi_dsi_rd_rx_fifo(mipi_dsi);
-		buf[0] = buf[0] >> 8;
+		if (strcmp(mipi_dsi->lcd_panel, "TRULY-TDO-ST7796H"))
+			buf[0] = buf[0] >> 8;
 	}
 	else {
 		/* TODO: add support later */
@@ -335,7 +357,10 @@ static void mipi_dsi_power_off(struct mxc_dispdrv_handle *disp)
 	int err;
 	struct mipi_dsi_info *mipi_dsi = mxc_dispdrv_getdata(disp);
 
-	err = mipi_dsi_dcs_cmd(mipi_dsi, MIPI_DCS_ENTER_SLEEP_MODE,
+	if (!strcmp(mipi_dsi->lcd_panel, "TRULY-TDO-ST7796H"))
+		err = 0;
+	else
+		err = mipi_dsi_dcs_cmd(mipi_dsi, MIPI_DCS_ENTER_SLEEP_MODE,
 			NULL, 0);
 	if (err) {
 		dev_err(&mipi_dsi->pdev->dev,
@@ -397,6 +422,8 @@ static int mipi_dsi_master_init(struct mipi_dsi_info *mipi_dsi,
 {
 	unsigned int time_out = 100;
 	unsigned int reg, byte_clk, esc_div;
+	unsigned long clk_rate, pll_clk;
+	unsigned int p, m, s;
 	struct fb_videomode *mode = mipi_dsi->mode;
 	struct device *dev = &mipi_dsi->pdev->dev;
 
@@ -409,19 +436,35 @@ static int mipi_dsi_master_init(struct mipi_dsi_info *mipi_dsi,
 	if (!strcmp(mipi_dsi->lcd_panel, "TRULY-WVGA-TFT3P5581E"))
 		writel(MIPI_DSI_PLL_EN(1) | MIPI_DSI_PMS(0x3141),
 		       mipi_dsi->mmio_base + MIPI_DSI_PLLCTRL);
-	else
+	else if (!strcmp(mipi_dsi->lcd_panel, "TRULY-TDO-ST7796H")) {
+		unsigned val;
+
+		// val = MIPI_DSI_P_M_S(6, 121, 2); // 121MHz
+		val = MIPI_DSI_P_M_S(6, 320, 3); // 160MHz
+
+		writel(MIPI_DSI_PLL_EN(1) | val, mipi_dsi->mmio_base + MIPI_DSI_PLLCTRL);
+	}
+	else {
 		writel(MIPI_DSI_PLL_EN(1) | MIPI_DSI_PMS(0x4190),
-		       mipi_dsi->mmio_base + MIPI_DSI_PLLCTRL);
+			mipi_dsi->mmio_base + MIPI_DSI_PLLCTRL);
+	}
 
 	/* set PLLTMR: stable time */
 	writel(33024, mipi_dsi->mmio_base + MIPI_DSI_PLLTMR);
 	udelay(300);
 
 	/* configure byte clock */
+	clk_rate = clk_get_rate(mipi_dsi->cfg_clk);
+	reg = readl(mipi_dsi->mmio_base + MIPI_DSI_PLLCTRL);
+	p = (reg >> 13) & 0x7F;
+	m = (reg >> 4) & 0x1FF;
+	s = (reg >> 1) & 0x07;
+	pll_clk = clk_rate / (p * (1<<s)) * m;
+
+	byte_clk = pll_clk / 8;
+	esc_div  = DIV_ROUND_UP(byte_clk, 10000000UL);
 	reg = readl(mipi_dsi->mmio_base + MIPI_DSI_CLKCTRL);
 	reg |= MIPI_DSI_BYTE_CLK_EN(1);
-	byte_clk = 1500000000 / 8;
-	esc_div  = DIV_ROUND_UP(byte_clk, 20 * 1000000);
 	reg |= (esc_div & 0xffff);
 	/* enable escape clock for clock lane and data lane0 and lane1 */
 	if (!strcmp(mipi_dsi->lcd_panel, "TRULY-TDO-QVGA0150A90049")) {
@@ -451,6 +494,37 @@ static int mipi_dsi_master_init(struct mipi_dsi_info *mipi_dsi,
 			MIPI_DSI_SUB_PIX_FORMAT(0x7) |
 			MIPI_DSI_NUM_OF_DATALANE(0x0) |
 			MIPI_DSI_LANE_EN(0x3),
+			mipi_dsi->mmio_base + MIPI_DSI_CONFIG);
+	}
+	else if (!strcmp(mipi_dsi->lcd_panel, "TRULY-TDO-ST7796H")) {
+		reg |= MIPI_DSI_LANE_ESC_CLK_EN(0x3);
+		reg |= MIPI_DSI_ESC_CLK_EN(1);
+		writel(reg, mipi_dsi->mmio_base + MIPI_DSI_CLKCTRL);
+
+		/* set main display resolution */
+		writel(MIPI_DSI_MAIN_HRESOL(mode->xres) |
+			MIPI_DSI_MAIN_VRESOL(mode->yres) |
+			MIPI_DSI_MAIN_STANDBY(0),
+			mipi_dsi->mmio_base + MIPI_DSI_MDRESOL);
+
+		/* set config register */
+		writel(MIPI_DSI_MFLUSH_VS(1) |
+			MIPI_DSI_SYNC_IN_FORM(1) |
+			MIPI_DSI_BURST_MODE(0) |
+			MIPI_DSI_VIDEO_MODE(0) |
+			MIPI_DSI_AUTO_MODE(0)  |
+			MIPI_DSI_HSE_DISABLE_MODE(0) |
+			MIPI_DSI_HFP_DISABLE_MODE(0) |
+			MIPI_DSI_HBP_DISABLE_MODE(0) |
+			MIPI_DSI_HSA_DISABLE_MODE(0) |
+			MIPI_DSI_MAIN_VC(0) |
+			MIPI_DSI_SUB_VC(1)  |
+			MIPI_DSI_MAIN_PIX_FORMAT(0x7) |
+			MIPI_DSI_SUB_PIX_FORMAT(0x7) |
+			MIPI_DSI_NUM_OF_DATALANE(0x0) |
+			MIPI_DSI_LANE_EN(0x3) |
+			MIPI_DSI_CLK_STOP_START(1) |
+			MIPI_DSI_CLK_NON_CONT(0),
 			mipi_dsi->mmio_base + MIPI_DSI_CONFIG);
 	}
 	else {
@@ -484,10 +558,16 @@ static int mipi_dsi_master_init(struct mipi_dsi_info *mipi_dsi,
 	}
 
 	/* set main display vporch */
-	writel(MIPI_DSI_CMDALLOW(0xf) |
-			MIPI_DSI_STABLE_VFP(mode->lower_margin) |
-			MIPI_DSI_MAIN_VBP(mode->upper_margin),
-			mipi_dsi->mmio_base + MIPI_DSI_MVPORCH);
+	if (!strcmp(mipi_dsi->lcd_panel, "TRULY-TDO-ST7796H"))
+		writel(MIPI_DSI_CMDALLOW(0x6) | //az 0x6
+				MIPI_DSI_STABLE_VFP(mode->lower_margin) |
+				MIPI_DSI_MAIN_VBP(mode->upper_margin),
+				mipi_dsi->mmio_base + MIPI_DSI_MVPORCH);
+	else
+		writel(MIPI_DSI_CMDALLOW(0xf) |
+				MIPI_DSI_STABLE_VFP(mode->lower_margin) |
+				MIPI_DSI_MAIN_VBP(mode->upper_margin),
+				mipi_dsi->mmio_base + MIPI_DSI_MVPORCH);
 	/* set main display hporch */
 	writel(MIPI_DSI_MAIN_HFP(mode->right_margin) |
 			MIPI_DSI_MAIN_HBP(mode->left_margin),
@@ -510,7 +590,21 @@ static int mipi_dsi_master_init(struct mipi_dsi_info *mipi_dsi,
 			MIPI_DSI_M_THSZEROCTL(3) |
 			MIPI_DSI_M_THSTRAILCTL(3),
 			mipi_dsi->mmio_base + MIPI_DSI_PHYTIMING2);
-	} else {
+	}
+	else if (!strcmp(mipi_dsi->lcd_panel, "TRULY-TDO-ST7796H")) {
+		writel(MIPI_DSI_M_TLPXCTL(4) | MIPI_DSI_M_THSEXITCTL(20),
+			mipi_dsi->mmio_base + MIPI_DSI_PHYTIMING);
+		writel(MIPI_DSI_M_TCLKPRPRCTL(3) |
+			MIPI_DSI_M_TCLKZEROCTL(20) |
+			MIPI_DSI_M_TCLKPOSTCTL(20) |
+			MIPI_DSI_M_TCLKTRAILCTL(20),
+			mipi_dsi->mmio_base + MIPI_DSI_PHYTIMING1);
+		writel(MIPI_DSI_M_THSPRPRCTL(4) |
+			MIPI_DSI_M_THSZEROCTL(20) |
+			MIPI_DSI_M_THSTRAILCTL(4),
+			mipi_dsi->mmio_base + MIPI_DSI_PHYTIMING2);
+	}
+	else {
 		writel(MIPI_DSI_M_TLPXCTL(11) | MIPI_DSI_M_THSEXITCTL(18),
 			mipi_dsi->mmio_base + MIPI_DSI_PHYTIMING);
 		writel(MIPI_DSI_M_TCLKPRPRCTL(13) |
@@ -524,7 +618,7 @@ static int mipi_dsi_master_init(struct mipi_dsi_info *mipi_dsi,
 			mipi_dsi->mmio_base + MIPI_DSI_PHYTIMING2);
 	}
 
-	writel(0xf000f, mipi_dsi->mmio_base + MIPI_DSI_TIMEOUT);
+	writel(0xFF000F, mipi_dsi->mmio_base + MIPI_DSI_TIMEOUT);
 
 	/* Init FIFO */
 	writel(0x0, mipi_dsi->mmio_base + MIPI_DSI_FIFOCTRL);
@@ -601,7 +695,10 @@ static void mipi_dsi_set_mode(struct mipi_dsi_info *mipi_dsi,
 		dsi_clkctrl &= ~MIPI_DSI_TX_REQUEST_HSCLK(1);
 		break;
 	case DSI_VD_MODE:
-		dsi_config  |= (MIPI_DSI_VIDEO_MODE(1) | MIPI_DSI_BURST_MODE(1));
+		if (!strcmp(mipi_dsi->lcd_panel, "TRULY-TDO-ST7796H"))
+			dsi_config  |= (MIPI_DSI_VIDEO_MODE(0) | MIPI_DSI_BURST_MODE(0));
+		else
+			dsi_config  |= (MIPI_DSI_VIDEO_MODE(1) | MIPI_DSI_BURST_MODE(1));
 		escape_mode &= ~(MIPI_DSI_CMD_LPDT | MIPI_DSI_TX_LPDT);
 		dsi_clkctrl |= MIPI_DSI_TX_REQUEST_HSCLK(1);
 		break;
@@ -650,9 +747,18 @@ static int mipi_dsi_enable(struct mxc_dispdrv_handle *disp,
 		if (ret)
 			return -EINVAL;
 
-		if (!strcmp(mipi_dsi->lcd_panel, "TRULY-TDO-QVGA0150A90049")) {
+		if (!strcmp(mipi_dsi->lcd_panel, "TRULY-TDO-QVGA0150A90049") || !strcmp(mipi_dsi->lcd_panel, "TRULY-TDO-ST7796H")) {
 			msleep(20);
 			ret = device_reset(&mipi_dsi->pdev->dev);
+
+			if (gpio_is_valid(reset_gpio)) {
+				gpio_set_value_cansleep(reset_gpio, 1);
+				msleep(10);
+				gpio_set_value_cansleep(reset_gpio, 0);
+				msleep(10);
+				gpio_set_value_cansleep(reset_gpio, 1);
+				msleep(10);
+			}
 
 			/* the mipi lcd panel should be config
 			* in the dsi command mode.
@@ -666,11 +772,10 @@ static int mipi_dsi_enable(struct mxc_dispdrv_handle *disp,
 			}
 			mipi_dsi->lcd_inited = 1;
 
-
 			/* change to video mode for panel display */
 			mipi_dsi_set_mode(mipi_dsi, DSI_VD_MODE);
 		}
-		else{
+		else {
 			msleep(20);
 			ret = device_reset(&mipi_dsi->pdev->dev);
 			if (ret) {
@@ -693,8 +798,11 @@ static int mipi_dsi_enable(struct mxc_dispdrv_handle *disp,
 		}
 	}
 	else {
-		ret = mipi_dsi_dcs_cmd(mipi_dsi, MIPI_DCS_EXIT_SLEEP_MODE,
-			NULL, 0);
+		if (!strcmp(mipi_dsi->lcd_panel, "TRULY-TDO-ST7796H"))
+			ret = 0;
+		else
+			ret = mipi_dsi_dcs_cmd(mipi_dsi, MIPI_DCS_EXIT_SLEEP_MODE,
+				NULL, 0);
 		if (ret) {
 			dev_err(&mipi_dsi->pdev->dev,
 				"MIPI DSI DCS Command sleep-in error!\n");
@@ -792,6 +900,18 @@ static irqreturn_t mipi_dsi_irq_handler(int irq, void *data)
 		complete(&dsi_rx_done);
 	}
 
+	if(intsrc & INTSRC_TURN_AROUND_TIMEOUT) {
+		dev_dbg(&pdev->dev, "turn around timeout\n");
+		intclr |= INTSRC_TURN_AROUND_TIMEOUT;
+		timeout = 1;
+		complete(&dsi_rx_done);
+	}
+
+	if(intsrc & INTSRC_BUS_TURN_OVER) {
+		dev_dbg(&pdev->dev, "bus turn over\n");
+		intclr |= INTSRC_BUS_TURN_OVER;
+	}
+
 	/* clear the interrupts */
 	if (intclr)
 		writel(intclr, mipi_dsi->mmio_base + MIPI_DSI_INTSRC);
@@ -820,17 +940,28 @@ static int mipi_dsi_probe(struct platform_device *pdev)
 	if (!mipi_dsi)
 		return -ENOMEM;
 
-    /* request lcd-back-light pin */
-    back_light_gpio = of_get_named_gpio(np, "back-light-gpios", 0);
-    if (!gpio_is_valid(back_light_gpio)) {
-        dev_warn(&pdev->dev, "no lcd-back-light gpio pin available");
-        return -EINVAL;
-    }
+	reset_gpio = of_get_named_gpio(np, "reset-gpios", 0);
+	if (!gpio_is_valid(reset_gpio)) {
+		dev_warn(&pdev->dev, "no reset gpio pin available");
+	}
+	else {
+		ret = devm_gpio_request_one(&pdev->dev, reset_gpio, GPIOF_OUT_INIT_HIGH, "lcd_mipi_reset");
+		if (ret)
+			return ret;
+	}
 
-    ret = devm_gpio_request_one(&pdev->dev, back_light_gpio, GPIOF_OUT_INIT_HIGH,
-                               "lcd_mipi_back-light");
-    if (ret < 0)
-        return ret;
+	/* request lcd-back-light pin */
+	back_light_gpio = of_get_named_gpio(np, "back-light-gpios", 0);
+	if (!gpio_is_valid(back_light_gpio)) {
+		dev_warn(&pdev->dev, "no lcd-back-light gpio pin available");
+	}
+	else {
+		ret = devm_gpio_request_one(&pdev->dev, back_light_gpio, GPIOF_OUT_INIT_HIGH,
+								   "lcd_mipi_back-light");
+		if (ret)
+			return ret;
+	}
+
 	mipi_dsi->pdev = pdev;
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);

@@ -947,6 +947,12 @@ fb_set_var(struct fb_info *info, struct fb_var_screeninfo *var)
 	int flags = info->flags;
 	int ret = 0;
 
+	/*
+	 * TFT320320-5-E: avoid display shifting
+	 */
+	if (var->xres_virtual == 320 && var->yres_virtual != 320)
+		goto done;
+
 	if (var->activate & FB_ACTIVATE_INV_MODE) {
 		struct fb_videomode mode1, mode2;
 
