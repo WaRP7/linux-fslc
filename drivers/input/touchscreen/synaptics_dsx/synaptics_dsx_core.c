@@ -47,8 +47,8 @@
 #endif
 
 #define COORDINATE_CALIBRATION_FOR_TFT320320_5_E
-#define COORDINATE_DELTA_X     (-18)
-#define COORDINATE_DELTA_Y     (5)
+#define COORDINATE_DELTA_X     (0)
+#define COORDINATE_DELTA_Y     (-20)
 
 #define INPUT_PHYS_NAME "synaptics_dsx/touch_input"
 #define STYLUS_PHYS_NAME "synaptics_dsx/stylus"
@@ -1032,8 +1032,8 @@ static int synaptics_rmi4_f11_abs_report(struct synaptics_rmi4_data *rmi4_data,
 			}
 
 #ifdef COORDINATE_CALIBRATION_FOR_TFT320320_5_E
-			y = (data.x_position_11_4 << 4) | data.x_position_3_0;
-			x = (data.y_position_11_4 << 4) | data.y_position_3_0;
+			x = (data.x_position_11_4 << 4) | data.x_position_3_0;
+			y = (data.y_position_11_4 << 4) | data.y_position_3_0;
 			x += COORDINATE_DELTA_X;
 			y += COORDINATE_DELTA_Y;
 #else
