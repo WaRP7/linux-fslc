@@ -410,6 +410,15 @@
 	status = "okay";
 };
 
+&uart6 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart6>;
+	assigned-clocks = <&clks IMX7D_UART6_ROOT_SRC>;
+	assigned-clock-parents = <&clks IMX7D_PLL_SYS_MAIN_240M_CLK>;
+	fsl,dte-mode;
+	status = "okay";
+};
+
 &usbotg1 {
 	dr_mode = "peripheral";
 	status = "okay";
@@ -522,6 +531,13 @@
 				MX7D_PAD_UART3_RTS_B__UART3_DCE_RTS 0x79
 				MX7D_PAD_SD2_DATA3__GPIO5_IO17 0x14/*BT_REG_ON*/
 				/* BT_REG_ON is on GPIO5 IO17 and must be toggle to reset the device */
+			>;
+		};
+		
+		pinctrl_uart6: uart6grp {
+			fsl,pins = <
+				MX7D_PAD_ECSPI1_MOSI__UART6_DTE_RX 0x79
+				MX7D_PAD_ECSPI1_SCLK__UART6_DTE_TX 0x79
 			>;
 		};
 
