@@ -511,7 +511,7 @@
 	pinctrl-2 = <&pinctrl_usdhc3_200mhz>;
 	assigned-clocks = <&clks IMX7D_USDHC3_ROOT_CLK>;
 	assigned-clock-rates = <400000000>;
-	bus-width = <8>;
+	bus-width = <4>;
 	tuning-step = <2>;
 	non-removable;
 	status = "okay";
