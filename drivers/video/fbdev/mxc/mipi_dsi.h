@@ -109,6 +109,11 @@ void mipid_hx8363_get_lcd_videomode(struct fb_videomode **mode, int *size,
 		struct mipi_lcd_config **data);
 int mipid_hx8363_lcd_setup(struct mipi_dsi_info *);
 #endif
+#ifdef CONFIG_FB_MXC_TRULY_PANEL_TDO_ST7796H
+void mipid_st7796h_get_lcd_videomode(struct fb_videomode **mode, int *size,
+		struct mipi_lcd_config **data);
+int mipid_st7796h_lcd_setup(struct mipi_dsi_info *);
+#endif
 #ifdef CONFIG_FB_MXC_TRULY_PANEL_TDO_QVGA0150A90049
 void mipid_otm3201a_get_lcd_videomode(struct fb_videomode **mode, int *size,
 		struct mipi_lcd_config **data);

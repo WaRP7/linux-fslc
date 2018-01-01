@@ -47,6 +47,13 @@ config FB_MXC_TRULY_PANEL_TDO_QVGA0150A90049
 	tristate "TRULY Panel OTM3201A"
 	depends on FB_MXC_SYNC_PANEL
 	depends on FB_MXC_MIPI_DSI_SAMSUNG
+	
+config FB_MXC_TRULY_PANEL_TDO_ST7796H
+	tristate "TRULY Panel TFT320320-5-E"
+	depends on FB_MXC_SYNC_PANEL
+	depends on FB_MXC_MIPI_DSI_SAMSUNG
+	help
+	  Support Truly panel TFT320320-5-E with chip ST7796H.
 
 config FB_MXC_TRULY_PANEL_TFT320RND
 	tristate "TRULY Panel TFT320RND"

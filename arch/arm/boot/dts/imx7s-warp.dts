@@ -125,8 +125,9 @@
 
 	mipi_dsi_reset: mipi-dsi-reset {
 		compatible = "gpio-reset";
-		/*reset-gpios = <&gpio7 6 GPIO_ACTIVE_LOW>;*/
+		/*reset-gpios = <&gpio7 6 GPIO_ACTIVE_LOW>;
 		reset-delay-us = <50>;
+		*/
 		#reset-cells = <0>;
 	};
 };
@@ -143,7 +144,7 @@
 	status = "okay";
 
 	display0: display {
-		bits-per-pixel = <16>;
+		bits-per-pixel = <24>;
 		bus-width = <24>;
 
 		display-timings {
@@ -171,10 +172,10 @@
 &mipi_dsi {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_enet2_epdc0_en>;
-	lcd_panel = "TRULY-TDO-QVGA0150A90049";
+	lcd_panel = "TRULY-TDO-ST7796H";	/* TRULY-TDO-QVGA0150A90049 */
 	resets = <&mipi_dsi_reset>;
-	back-light-gpios = <&gpio7 2 1>;
-	reset-gpios = <&gpio7 6 0>;
+	back-light-gpios = <&gpio7 2 0>;
+	/* reset-gpios = <&gpio7 6 0>; */
 	status = "okay";
 };
 
@@ -302,6 +303,7 @@
 	status = "okay";
 
         himax-ts@48 {
+        	status = "disabled";
                 compatible = "himax,852xes";
                 reg = <0x48>;
                 pinctrl-0 = <&pinctrl_ctp>;
@@ -312,6 +314,30 @@
                 himax,display-coords = <0 320 0 320>;
                 himax,irq-gpio = <&gpio1 1 0x00>;
                 report_type = <1>;
+	};
+	
+	synaptics_dsx@20 {
+		compatible = "synaptics,dsx-i2c";
+		reg = <0x20>;
+
+		interrupt-parent = <&gpio1>;
+		interrupts = <1 IRQ_TYPE_EDGE_FALLING>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_ts_active>;
+		synaptics,ub-i2c-addr = <0x2c>;
+		synaptics,irq-gpio = <&gpio1 1 0x2008>;
+		synaptics,irq-on-state = <0>;
+		synaptics,power-delay-ms = <200>;
+		/* synaptics,reset-gpio = <&gpio1 14 GPIO_ACTIVE_LOW>; */
+		synaptics,reset-delay-ms = <200>;
+		synaptics,reset-on-state = <0>;
+		synaptics,reset-active-ms = <20>;
+		/* uncomment and update line below as appropriate if there are 0D buttons */
+		/* synaptics,cap-button-codes = <102 158>; */
+		/* uncomment and update lines below as appropriate if there are virtual buttons */
+		/* synaptics,vir-button-codes = <102 100 900 100 60 158 300 900 100 60>; */
+		/* synaptics,max-y-for-2d = <800>; */
 	};
 };
 
@@ -373,6 +399,13 @@
         pinctrl-0 = <&pinctrl_hog_2 &pinctrl_usbotg2_pwr_2>;
 
         imx7s-warp {
+        
+        	pinctrl_ts_active: ts_active {
+			fsl,pins = <
+				MX7D_PAD_LPSR_GPIO1_IO01__GPIO1_IO1    	0x14
+			>;
+		};
+			
                 pinctrl_ctp: ctp {
                         fsl,pins = <
                                 MX7D_PAD_LPSR_GPIO1_IO01__GPIO1_IO1	0x14
@@ -595,8 +628,7 @@
 
 		pinctrl_enet2_epdc0_en: enet2_epdc0_grp {
 			fsl,pins = <
-			MX7D_PAD_ENET1_RGMII_RD2__GPIO7_IO2 0x00
-			MX7D_PAD_ENET1_RGMII_TD0__GPIO7_IO6  0x00
+				MX7D_PAD_ENET1_RGMII_RD2__GPIO7_IO2 0x00
 			>;
 		};
 

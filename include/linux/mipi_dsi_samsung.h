@@ -83,10 +83,13 @@
 #define MIPI_DSI_SYNC_IN_FORM(x)	(((x) & 0x1) << 27)
 #define MIPI_DSI_EOT_R03(x)		(((x) & 0x1) << 28)
 #define MIPI_DSI_MFLUSH_VS(x)		(((x) & 0x1) << 29)
+#define MIPI_DSI_CLK_STOP_START(x)	(((x) & 0x1) << 30)
+#define MIPI_DSI_CLK_NON_CONT(x)	(((x) & 0x1) << 31)
 
 #define MIPI_DSI_DP_DN_SWAP_DATA	(0x1 << 24)
 #define MIPI_DSI_PLL_EN(x)		(((x) & 0x1) << 23)
 #define MIPI_DSI_PMS(x)			(((x) & 0x7ffff) << 1)
+#define MIPI_DSI_P_M_S(p,m,s)		(((p & 0x7F) << 13) | ((m & 0x1FF) << 4) | ((s & 0x7) << 1))
 
 #define MIPI_DSI_TX_REQUEST_HSCLK(x)	(((x) & 0x1) << 31)
 #define MIPI_DSI_DPHY_SEL(x)		(((x) & 0x1) << 29)
@@ -97,6 +100,7 @@
 #define MIPI_DSI_LANE_ESC_CLK_EN(x)	(((x) & 0x1f) << 19)
 
 #define MIPI_DSI_FORCE_STOP_STATE(x)	(((x) & 0x1) << 20)
+#define MIPI_DSI_FORCE_BTA(x)		(((x) & 0x1) << 16)
 
 #define MIPI_DSI_M_TLPXCTL(x)		(((x) & 0xff) << 8)
 #define MIPI_DSI_M_THSEXITCTL(x)	(((x) & 0xff) << 0)
@@ -119,10 +123,15 @@
 
 #define INTSRC_SFR_PL_FIFO_EMPTY	(0x1 << 29)
 #define INTSRC_SFR_PH_FIFO_EMPTY	(0x1 << 28)
+#define INTSRC_BUS_TURN_OVER		(0x1 << 25)
+#define INTSRC_TURN_AROUND_TIMEOUT	(0x1 << 20)
 #define INTSRC_RX_DATA_DONE		(0x1 << 18)
 #define INTMSK_SFR_PL_FIFO_EMPTY	(0x1 << 29)
 #define INTMSK_SFR_PH_FIFO_EMPTY	(0x1 << 28)
 #define INTMSK_RX_DATA_DONE		(0x1 << 18)
+
+#define FIFOCTRL_FULLRX			(0x1 << 25)
+#define FIFOCTRL_EMPTYRX		(0x1 << 24)
 
 #define MIPI_DSI_STOP_STATE_CNT(x)	(((x) & 0x7ff) << 21)
 #define MIPI_DSI_CMD_LPDT		(0x1 << 7)
